@@ -10,11 +10,11 @@ from langchain.schema.agent import AgentFinish
 import requests
 from pydantic.v1 import BaseModel, Field
 import datetime
+import wikipediaapi
 
 GOOGLE_API_KEY = 'AIzaSyCCHV3t3O5gDkpHwxHnHQLUMXrvPhFwgqQ'
 
-
-# Define the input schema
+# Define the input schema for weather
 class OpenMeteoInput(BaseModel):
     latitude: float = Field(..., description="Latitude of the location to fetch weather data for")
     longitude: float = Field(..., description="Longitude of the location to fetch weather data for")
@@ -50,7 +50,24 @@ def get_current_temperature(latitude: float, longitude: float) -> dict:
     
     return f'The current temperature is {current_temperature}°C'
 
-tools = [get_current_temperature]
+# Define the input schema for Wikipedia
+class WikipediaInput(BaseModel):
+    query: str = Field(..., description="Search query for Wikipedia")
+
+@tool(args_schema=WikipediaInput)
+def search_wikipedia(query: str) -> str:
+    """Search Wikipedia for the given query and return a summary."""
+    
+    wiki_wiki = wikipediaapi.Wikipedia('en')
+    page = wiki_wiki.page(query)
+    
+    if page.exists():
+        return page.summary
+    else:
+        return f"No Wikipedia page found for '{query}'"
+
+# Register tools
+tools = [get_current_temperature, search_wikipedia]
 functions = [format_tool_to_openai_function(f) for f in tools]
 
 model = ChatGoogleGenerativeAI(
@@ -65,30 +82,11 @@ prompt  = ChatPromptTemplate.from_messages([
 ])
 
 chain = prompt | model | OpenAIFunctionsAgentOutputParser()
-result = chain.invoke({"input": "what is the weather is sf?"})
+
+# Example usage
+result = chain.invoke({"input": "Tell me about Python programming language"})
 print(result)
 
-
-# prompt = ChatPromptTemplate.from_messages([
-#     ("system", "You are helpful but sassy assistant"),
-#     ("user", "{input}"),
-#     MessagesPlaceholder(variable_name="agent_scratchpad")
-# ])
-# chain = prompt | model | OpenAIFunctionsAgentOutputParser()
-#
-# result1 = chain.invoke({
-#     "input": "what is the weather is san fransico located at 37.7749° N, 122.4194° W?",
-#     "agent_scratchpad": []
-# })
-#
-# print(result1)
-# print(type(result1))
-#
-# observation = get_current_temperature(result1.tool_input)
-# print(observation)
-
-# result2 = chain.invoke({
-#     "input": "what is the weather is sf?", 
-#     "agent_scratchpad": format_to_openai_functions([(result1, observation)])
-# })
-# print(result2)
+# Handling LLM decision to call the Wikipedia function
+result_wiki = chain.invoke({"input": "Search Wikipedia for Python programming language"})
+print(result_wiki)
